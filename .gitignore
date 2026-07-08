@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+node_modules/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+/tmp/argus/
+*.xml
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,118 @@
+# ── Stage 1: Download pre-built security tool binaries ───────
+FROM alpine:3.20 AS toolbins
+
+# Optional GitHub token — raises the unauthenticated 60/hour API rate limit to
+# 5000/hour for the release-lookup calls below. Only touches this throwaway
+# stage (discarded after COPY --from=toolbins), so it never reaches the final image.
+ARG GITHUB_TOKEN=""
+
+RUN apk add --no-cache wget unzip ca-certificates jq
+
+WORKDIR /tools
+
+RUN SUBFINDER_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/projectdiscovery/subfinder/releases/latest" \
+      | jq -r '.assets[] | select(.name | endswith("linux_amd64.zip")) | .browser_download_url' | head -1) \
+    && wget -q "$SUBFINDER_URL" -O subfinder.zip \
+    && unzip -qj subfinder.zip subfinder \
+    && chmod +x subfinder
+
+RUN HTTPX_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/projectdiscovery/httpx/releases/latest" \
+      | jq -r '.assets[] | select(.name | endswith("linux_amd64.zip")) | .browser_download_url' | head -1) \
+    && wget -q "$HTTPX_URL" -O httpx.zip \
+    && unzip -qj httpx.zip httpx \
+    && chmod +x httpx
+
+RUN NUCLEI_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/projectdiscovery/nuclei/releases/latest" \
+      | jq -r '.assets[] | select(.name | endswith("linux_amd64.zip")) | .browser_download_url' | head -1) \
+    && wget -q "$NUCLEI_URL" -O nuclei.zip \
+    && unzip -qj nuclei.zip nuclei \
+    && chmod +x nuclei
+
+RUN FFUF_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/ffuf/ffuf/releases/latest" \
+      | jq -r '.assets[] | select(.name | endswith("linux_amd64.tar.gz")) | .browser_download_url' | head -1) \
+    && wget -q "$FFUF_URL" -O ffuf.tar.gz \
+    && tar -xzf ffuf.tar.gz ffuf \
+    && chmod +x ffuf
+
+RUN GOWITNESS_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/sensepost/gowitness/releases/latest" \
+      | jq -r '.assets[] | select(.name | test("linux-amd64$")) | .browser_download_url' | head -1) \
+    && wget -q "$GOWITNESS_URL" -O gowitness \
+    && chmod +x gowitness
+
+RUN GITLEAKS_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/gitleaks/gitleaks/releases/latest" \
+      | jq -r '.assets[] | select(.name | test("linux_x64.tar.gz$")) | .browser_download_url' | head -1) \
+    && wget -q "$GITLEAKS_URL" -O gitleaks.tar.gz \
+    && tar -xzf gitleaks.tar.gz gitleaks \
+    && chmod +x gitleaks
+
+RUN DALFOX_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/hahwul/dalfox/releases/latest" \
+      | jq -r '.assets[] | select(.name | test("linux-x86_64\\.tar\\.gz$")) | .browser_download_url' | head -1) \
+    && wget -q "$DALFOX_URL" -O dalfox.tar.gz \
+    && mkdir -p /tmp/dalfox && tar -xzf dalfox.tar.gz -C /tmp/dalfox \
+    && find /tmp/dalfox -type f -name dalfox -exec cp {} /tools/dalfox \; \
+    && chmod +x /tools/dalfox && rm -rf /tmp/dalfox dalfox.tar.gz
+
+RUN AMASS_URL=$(wget -qO- ${GITHUB_TOKEN:+--header="Authorization: token $GITHUB_TOKEN"} "https://api.github.com/repos/owasp-amass/amass/releases/latest" \
+      | jq -r '.assets[] | select(.name | test("amass_linux_amd64\\.tar\\.gz$")) | .browser_download_url' | head -1) \
+    && wget -q "$AMASS_URL" -O amass.tar.gz \
+    && mkdir -p /tmp/amass && tar -xzf amass.tar.gz -C /tmp/amass \
+    && find /tmp/amass -type f -name amass -exec cp {} /tools/amass \; \
+    && chmod +x /tools/amass && rm -rf /tmp/amass amass.tar.gz
+
+# ── Stage 2: Python runtime ───────────────────────────────────
+FROM python:3.11-slim-bookworm
+
+# Apply all security patches before installing packages, then install tools.
+# chromium is required by gowitness for screenshots; upgrades patch known CVEs.
+# nikto is NOT in Debian's default "main" component (it's in "non-free"), so it's
+# installed from upstream below instead of via apt.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
+        nmap git whois perl openssl bsdmainutils dnsutils \
+        ca-certificates chromium chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
+# Nikto — installed from upstream GitHub (not packaged in Debian's default repos)
+RUN git clone --depth 1 https://github.com/sullo/nikto /opt/nikto \
+    && chmod +x /opt/nikto/program/nikto.pl \
+    && printf '#!/bin/sh\nexec /opt/nikto/program/nikto.pl "$@"\n' > /usr/local/bin/nikto \
+    && chmod +x /usr/local/bin/nikto
+
+# Build hydra from source (latest upstream patches SSH/FTP/Telnet support).
+# Only link against libssl — the protocols we test don't need the heavier deps.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc make libssl-dev libssh-dev \
+    && git clone --depth 1 https://github.com/vanhauser-thc/thc-hydra /tmp/hydra-src \
+    && cd /tmp/hydra-src && ./configure --quiet && make -j"$(nproc)" \
+    && cp hydra /usr/local/bin/hydra \
+    && cd / && rm -rf /tmp/hydra-src \
+    && apt-get purge -y --auto-remove gcc make libssl-dev libssh-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# SQLMap
+RUN git clone --depth 1 https://github.com/sqlmapproject/sqlmap /opt/sqlmap
+
+# testssl.sh
+RUN git clone --depth 1 https://github.com/drwetter/testssl.sh /opt/testssl \
+    && chmod +x /opt/testssl/testssl.sh
+
+COPY --from=toolbins /tools/subfinder  /usr/local/bin/
+COPY --from=toolbins /tools/httpx      /usr/local/bin/pd-httpx
+COPY --from=toolbins /tools/nuclei     /usr/local/bin/
+COPY --from=toolbins /tools/ffuf       /usr/local/bin/
+COPY --from=toolbins /tools/gowitness  /usr/local/bin/
+COPY --from=toolbins /tools/gitleaks   /usr/local/bin/
+COPY --from=toolbins /tools/dalfox     /usr/local/bin/
+COPY --from=toolbins /tools/amass      /usr/local/bin/
+
+RUN mkdir -p /tmp/argus /tmp/argus/screenshots /tmp/argus/sqlmap /tmp/argus/gitdump
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN nuclei -update-templates -silent 2>/dev/null || true

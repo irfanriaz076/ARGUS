@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARGUS — Automated Red Team Operations</title>
+    <link rel="icon" type="image/png" href="/argus-favicon.png" />
+    <meta name="theme-color" content="#09080A" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html { background: #09080A; }
+      body {
+        background: #09080A;
+        color: #EEE0E0;
+        font-family: 'JetBrains Mono', monospace;
+        overflow-x: hidden;
+        min-height: 100vh;
+      }
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-track { background: #100809; }
+      ::-webkit-scrollbar-thumb { background: #261414; border-radius: 2px; }
+      ::-webkit-scrollbar-thumb:hover { background: #CC0000; box-shadow: 0 0 6px #CC0000; }
+      ::selection { background: rgba(204,0,0,0.30); color: #FFFFFF; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
