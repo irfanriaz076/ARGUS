@@ -24,7 +24,7 @@ ARGUS is a self-contained security orchestration platform that runs a full recon
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-org/argus
+git clone https://github.com/Hamza-Shaukat078/ARGUS.git
 cd argus
 cp .env.example .env
 docker compose -f docker/docker-compose.yml up --build
